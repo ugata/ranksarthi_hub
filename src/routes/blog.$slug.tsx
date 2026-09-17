@@ -35,12 +35,15 @@ export const Route = createFileRoute("/blog/$slug")({
     const { article } = loaderData;
     const url = `/blog/${params.slug}`;
     const canonical = article.canonicalOverride ?? absolute(url);
+    const keywords = article.keywords ?? (article.tags.length ? article.tags.join(", ") : undefined);
     const head = buildHead({
       url,
       title: article.seoTitle,
       description: article.metaDescription,
+      ...(keywords ? { keywords } : {}),
       ogTitle: article.title,
       ogDescription: article.excerpt,
+      ogImage: article.featuredImage,
       ogType: "article",
       jsonLd: [articleSchema({ url, headline: article.title, description: article.excerpt, ...(article.publishedAt ? { published: article.publishedAt } : {}), ...(article.updatedAt ? { updated: article.updatedAt } : {}) }), dynamicBreadcrumbSchema(article.title, article.category, url)],
     });

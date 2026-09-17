@@ -59,6 +59,8 @@ export interface BlogArticle {
   relatedInternalRoutes: string[];
   seoTitle: string;
   metaDescription: string;
+  /** Comma-separated meta keywords, when the CMS provides them explicitly. */
+  keywords?: string;
   canonicalOverride: string | null;
   featured: boolean;
   status: "draft" | "published";

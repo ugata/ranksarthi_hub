@@ -23,6 +23,7 @@ export function buildHead(input: HeadInput) {
   const meta: Array<Record<string, string>> = [
     { title: input.title },
     { name: "description", content: input.description },
+    ...(input.keywords ? [{ name: "keywords", content: input.keywords }] : []),
     { property: "og:title", content: ogTitle },
     { property: "og:description", content: ogDescription },
     { property: "og:type", content: input.ogType ?? "website" },

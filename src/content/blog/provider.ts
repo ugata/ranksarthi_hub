@@ -1,4 +1,5 @@
 import type { BlogArticle, BlogDataProvider } from "./types";
+import { WordPressBlogDataProvider } from "./wordpress-provider";
 
 export class LocalBlogDataProvider implements BlogDataProvider {
   async listArticles(): Promise<BlogArticle[]> {
@@ -24,8 +25,15 @@ export class EmptyBlogDataProvider implements BlogDataProvider {
   }
 }
 
+/**
+ * DEV uses the local sample articles. Production uses WordPress once it's
+ * connected (see src/server/wordpress-blog.ts); until WP_CMS_ORIGIN is set,
+ * WordPressBlogDataProvider's underlying fetch simply returns nothing, which
+ * degrades to the same "empty editorial hub" state EmptyBlogDataProvider
+ * used to provide explicitly.
+ */
 export function selectBlogDataProvider(isDevelopment: boolean): BlogDataProvider {
-  return isDevelopment ? new LocalBlogDataProvider() : new EmptyBlogDataProvider();
+  return isDevelopment ? new LocalBlogDataProvider() : new WordPressBlogDataProvider();
 }
 
 export const blogDataProvider: BlogDataProvider = selectBlogDataProvider(import.meta.env.DEV);
