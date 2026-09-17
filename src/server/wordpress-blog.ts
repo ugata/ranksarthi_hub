@@ -238,8 +238,13 @@ function parseContent(html: string): BlogContentNode[] {
         continue;
       }
       if (tag === "blockquote" || tag === "cite") {
-        const text = $el.clone().find("p").first();
-        const children = text.length ? parseInline($, text.get(0)!) : parseInline($, el);
+        // A blockquote's children only ever render as a single flowing
+        // paragraph, so multiple <p>s inside get joined rather than only
+        // keeping the first one.
+        const paragraphs = $el.children("p").toArray();
+        const children = paragraphs.length
+          ? paragraphs.flatMap((p, i) => (i === 0 ? parseInline($, p) : [{ text: " " }, ...parseInline($, p)]))
+          : parseInline($, el);
         if (children.length) nodes.push({ type: "blockquote", children });
         continue;
       }
