@@ -3,18 +3,22 @@ import { ArrowUpRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BlogCard } from "./BlogCard";
+import { BlogComments } from "./BlogComments";
 import { BlogContentRenderer } from "./BlogContentRenderer";
 import { TableOfContents, tableOfContentsFor } from "./TableOfContents";
 import { getUrl, isIndexable } from "@/content/registry";
 import { formatDate } from "@/lib/date";
 import { isSafeExternalHref } from "@/lib/utils";
-import type { BlogArticle as BlogArticleData, BlogInline } from "@/content/blog";
+import type { BlogArticle as BlogArticleData, BlogComment, BlogInline } from "@/content/blog";
 
 function Inline({ nodes }: { nodes: BlogInline[] }) {
   return nodes.map((node, index) => {
     let content: React.ReactNode = node.text;
     if (node.bold) content = <strong className="font-semibold text-primary">{content}</strong>;
     if (node.italic) content = <em>{content}</em>;
+    if (node.underline) content = <u>{content}</u>;
+    if (node.strikethrough) content = <s>{content}</s>;
+    if (node.code) content = <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.9em] text-primary">{content}</code>;
     if (node.href) {
       content = node.href.startsWith("/") ? (
         <Link to={node.href} className="text-accent underline underline-offset-4">{content}</Link>
@@ -46,7 +50,15 @@ function BlogBreadcrumbs({ article }: { article: BlogArticleData }) {
   );
 }
 
-export function BlogArticle({ article, relatedArticles }: { article: BlogArticleData; relatedArticles: BlogArticleData[] }) {
+export function BlogArticle({
+  article,
+  relatedArticles,
+  comments,
+}: {
+  article: BlogArticleData;
+  relatedArticles: BlogArticleData[];
+  comments: BlogComment[];
+}) {
   const toc = tableOfContentsFor(article.content);
   const resources = article.relatedInternalRoutes
     .map((url) => ({ url, record: getUrl(url) }))
@@ -61,7 +73,24 @@ export function BlogArticle({ article, relatedArticles }: { article: BlogArticle
           <Badge variant="secondary" className="text-accent">{article.category}</Badge>
           <h1 className="mt-4 break-words text-display-lg text-primary">{article.title}</h1>
           <p className="mt-5 max-w-3xl text-lg text-muted-foreground">{article.excerpt}</p>
-          <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-3 text-sm">
+          <dl className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
+            {article.author ? (
+              <div className="flex items-center gap-2.5">
+                {article.author.avatarUrl ? (
+                  <img src={article.author.avatarUrl} alt="" className="size-8 rounded-full" width={32} height={32} />
+                ) : null}
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Author</dt>
+                  <dd className="font-medium text-primary">{article.author.name}</dd>
+                </div>
+              </div>
+            ) : null}
+            {article.reviewer ? (
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Reviewed by</dt>
+                <dd className="font-medium text-primary">{article.reviewer.name}</dd>
+              </div>
+            ) : null}
             {article.publishedAt && formatDate(article.publishedAt) ? <div><dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Published</dt><dd className="mt-1 font-medium text-primary"><time dateTime={article.publishedAt}>{formatDate(article.publishedAt)}</time></dd></div> : null}
             {article.updatedAt && article.updatedAt !== article.publishedAt && formatDate(article.updatedAt) ? <div><dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Updated</dt><dd className="mt-1 font-medium text-primary"><time dateTime={article.updatedAt}>{formatDate(article.updatedAt)}</time></dd></div> : null}
           </dl>
@@ -82,6 +111,8 @@ export function BlogArticle({ article, relatedArticles }: { article: BlogArticle
         {relatedArticles.length ? <section className="mx-auto mt-16 max-w-6xl"><h2 className="text-display-md text-primary">Related articles</h2><div className="mt-6 grid gap-5 md:grid-cols-3">{relatedArticles.slice(0, 3).map((related) => <BlogCard key={related.id} article={related} />)}</div></section> : null}
 
         {resources.length ? <section className="mx-auto mt-16 max-w-6xl"><h2 className="text-display-md text-primary">Related Rank Sarthi resources</h2><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{resources.map(({ url, record }) => <Button key={url} asChild variant="outline" className="h-auto min-h-12 justify-between whitespace-normal py-3 text-left"><Link to={url} rel={isIndexable(record) ? undefined : "nofollow"}>{record?.name}<ArrowUpRight aria-hidden /></Link></Button>)}</div></section> : null}
+
+        <BlogComments articleId={article.id} initialComments={comments} />
       </article>
     </>
   );

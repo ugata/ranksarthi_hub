@@ -7,10 +7,11 @@ export interface TocItem {
   level: 2 | 3;
 }
 
+/** Only h2/h3 appear in "On this page" — deeper headings (h4-h6) still render in the body, just not the nav. */
 export function tableOfContentsFor(content: BlogContentNode[]): TocItem[] {
   return content
-    .filter((node): node is Extract<BlogContentNode, { type: "heading" }> => node.type === "heading")
-    .map((node) => ({ id: node.id, label: node.text, level: node.level }));
+    .filter((node): node is Extract<BlogContentNode, { type: "heading" }> => node.type === "heading" && (node.level === 2 || node.level === 3))
+    .map((node) => ({ id: node.id, label: node.text, level: node.level as 2 | 3 }));
 }
 
 function TocLinks({ items }: { items: TocItem[] }) {

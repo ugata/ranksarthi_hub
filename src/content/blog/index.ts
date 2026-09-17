@@ -2,6 +2,9 @@ export { blogDataProvider, EmptyBlogDataProvider, LocalBlogDataProvider, selectB
 export type {
   BlogArticle,
   BlogCategory,
+  BlogComment,
+  BlogCommentInput,
+  BlogCommentResult,
   BlogContentNode,
   BlogDataProvider,
   BlogExam,
@@ -9,5 +12,6 @@ export type {
   BlogListParams,
   BlogListResult,
   BlogPagination,
+  BlogPerson,
   BlogSource,
 } from "./types";

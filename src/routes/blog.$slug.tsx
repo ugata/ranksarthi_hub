@@ -23,10 +23,12 @@ export const Route = createFileRoute("/blog/$slug")({
   loader: async ({ params }) => {
     const article = await blogDataProvider.getArticleBySlug(params.slug);
     if (!article) throw notFound();
-    const relatedArticles = (
-      await Promise.all(article.relatedArticleSlugs.slice(0, 3).map((slug) => blogDataProvider.getArticleBySlug(slug)))
-    ).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
-    return { article, relatedArticles };
+    const [relatedResults, comments] = await Promise.all([
+      Promise.all(article.relatedArticleSlugs.slice(0, 3).map((slug) => blogDataProvider.getArticleBySlug(slug))),
+      blogDataProvider.listComments(article.id),
+    ]);
+    const relatedArticles = relatedResults.filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    return { article, relatedArticles, comments };
   },
   head: ({ params, loaderData }) => {
     if (!loaderData) return { meta: [{ title: "Article not found | Rank Sarthi" }, { name: "robots", content: "noindex, follow" }] };
@@ -57,6 +59,10 @@ export const Route = createFileRoute("/blog/$slug")({
 });
 
 function BlogArticlePage() {
-  const { article, relatedArticles } = Route.useLoaderData();
-  return <PageFrame frame="F1" url={`/blog/${article.slug}`}><BlogArticle article={article} relatedArticles={relatedArticles} /></PageFrame>;
+  const { article, relatedArticles, comments } = Route.useLoaderData();
+  return (
+    <PageFrame frame="F1" url={`/blog/${article.slug}`}>
+      <BlogArticle article={article} relatedArticles={relatedArticles} comments={comments} />
+    </PageFrame>
+  );
 }

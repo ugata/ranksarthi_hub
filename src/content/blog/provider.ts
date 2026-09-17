@@ -1,4 +1,12 @@
-import type { BlogArticle, BlogDataProvider, BlogListParams, BlogListResult } from "./types";
+import type {
+  BlogArticle,
+  BlogComment,
+  BlogCommentInput,
+  BlogCommentResult,
+  BlogDataProvider,
+  BlogListParams,
+  BlogListResult,
+} from "./types";
 import { WordPressBlogDataProvider } from "./wordpress-provider";
 
 const DEFAULT_PER_PAGE = 12;
@@ -32,6 +40,14 @@ export class LocalBlogDataProvider implements BlogDataProvider {
     const { localBlogArticles } = await import("./local-data");
     return localBlogArticles.find((article) => article.slug === slug);
   }
+
+  async listComments(): Promise<BlogComment[]> {
+    return [];
+  }
+
+  async submitComment(): Promise<BlogCommentResult> {
+    return { ok: false, reason: "Comments are not available on local sample articles." };
+  }
 }
 
 export class EmptyBlogDataProvider implements BlogDataProvider {
@@ -41,6 +57,14 @@ export class EmptyBlogDataProvider implements BlogDataProvider {
 
   async getArticleBySlug(): Promise<BlogArticle | undefined> {
     return undefined;
+  }
+
+  async listComments(): Promise<BlogComment[]> {
+    return [];
+  }
+
+  async submitComment(): Promise<BlogCommentResult> {
+    return { ok: false, reason: "Comments are not available right now." };
   }
 }
 

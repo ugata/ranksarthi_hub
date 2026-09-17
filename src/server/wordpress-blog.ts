@@ -5,12 +5,17 @@ import type {
   BlogAlign,
   BlogArticle,
   BlogCategory,
+  BlogComment,
+  BlogCommentInput,
+  BlogCommentResult,
   BlogContentNode,
   BlogExam,
+  BlogHeadingLevel,
   BlogInline,
   BlogInlineStyle,
   BlogListParams,
   BlogListResult,
+  BlogPerson,
   BlogSource,
 } from "@/content/blog/types";
 
@@ -92,43 +97,72 @@ function alignFromEl($: cheerio.CheerioAPI, el: AnyNode): BlogAlign | undefined 
   return m ? (m[1]!.toLowerCase() as BlogAlign) : undefined;
 }
 
+interface InlineMarks {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  code: boolean;
+  href: string | undefined;
+  style: BlogInlineStyle;
+}
+
+/** Images WordPress placed inside a paragraph/heading (e.g. a "Media & Text" block) — pulled out as their own block. */
+function collectInlineImages($: cheerio.CheerioAPI, el: AnyNode): BlogContentNode[] {
+  const nodes: BlogContentNode[] = [];
+  for (const img of $(el).find("img").toArray()) {
+    const src = $(img).attr("src") ?? "";
+    const alt = $(img).attr("alt") ?? "";
+    if (src && alt) nodes.push({ type: "image", src, alt });
+  }
+  return nodes;
+}
+
 function parseInline($: cheerio.CheerioAPI, node: AnyNode): BlogInline[] {
   const out: BlogInline[] = [];
-  const walk = (el: AnyNode, bold: boolean, italic: boolean, href: string | undefined, style: BlogInlineStyle) => {
+  const walk = (el: AnyNode, marks: InlineMarks) => {
     if (el.type === "text") {
       const text = (el as unknown as { data: string }).data;
       if (text) {
         out.push({
           text,
-          ...(bold ? { bold: true } : {}),
-          ...(italic ? { italic: true } : {}),
-          ...(href ? { href } : {}),
-          ...style,
+          ...(marks.bold ? { bold: true } : {}),
+          ...(marks.italic ? { italic: true } : {}),
+          ...(marks.underline ? { underline: true } : {}),
+          ...(marks.strikethrough ? { strikethrough: true } : {}),
+          ...(marks.code ? { code: true } : {}),
+          ...(marks.href ? { href: marks.href } : {}),
+          ...marks.style,
         });
       }
       return;
     }
     if (el.type !== "tag") return;
     const tag = el.name.toLowerCase();
-    const nextBold = bold || tag === "strong" || tag === "b";
-    const nextItalic = italic || tag === "em" || tag === "i";
-    let nextHref = href;
+    if (tag === "img") return; // pulled out separately by collectInlineImages
+    const next: InlineMarks = {
+      bold: marks.bold || tag === "strong" || tag === "b",
+      italic: marks.italic || tag === "em" || tag === "i",
+      underline: marks.underline || tag === "u" || tag === "ins",
+      strikethrough: marks.strikethrough || tag === "s" || tag === "del" || tag === "strike",
+      code: marks.code || tag === "code",
+      href: marks.href,
+      style: { ...marks.style, ...styleFromAttr($(el).attr("style")) },
+    };
     if (tag === "a") {
       const raw = $(el).attr("href") ?? "";
-      if (isSafeHref(raw)) nextHref = raw;
+      if (isSafeHref(raw)) next.href = raw;
     }
-    const elStyle = styleFromAttr($(el).attr("style"));
-    const nextStyle: BlogInlineStyle = { ...style, ...elStyle };
     if (tag === "br") {
       out.push({ text: " " });
       return;
     }
     for (const child of (el as unknown as { children: AnyNode[] }).children ?? []) {
-      walk(child, nextBold, nextItalic, nextHref, nextStyle);
+      walk(child, next);
     }
   };
   for (const child of (node as unknown as { children: AnyNode[] }).children ?? []) {
-    walk(child, false, false, undefined, {});
+    walk(child, { bold: false, italic: false, underline: false, strikethrough: false, code: false, href: undefined, style: {} });
   }
   return out.filter((n) => n.text.trim().length > 0 || n.href);
 }
@@ -142,14 +176,14 @@ function slugify(text: string): string {
 }
 
 /** Maps sanitised WordPress body HTML into the supported block allow-list. */
+const HEADING_TAGS = new Set(["h2", "h3", "h4", "h5", "h6"]);
+/** Container blocks (Group, Columns, Cover, Media & Text, buttons row, ...) whose content we still want. */
+const RECURSE_TAGS = new Set(["div", "section", "aside", "details", "summary"]);
+const DROP_TAGS = new Set(["script", "style", "iframe", "form", "noscript", "button", "input", "select", "textarea", "svg", "canvas"]);
+
 function parseContent(html: string): BlogContentNode[] {
   if (!html) return [];
   const $ = cheerio.load(html);
-  // cheerio.load() wraps a fragment in an implicit <html><body>, so the
-  // actual content lives one level below root.
-  const root = $("body").get(0);
-  if (!root) return [];
-  const nodes: BlogContentNode[] = [];
   const seenIds = new Set<string>();
 
   const uniqueId = (text: string) => {
@@ -160,23 +194,39 @@ function parseContent(html: string): BlogContentNode[] {
     return id;
   };
 
-  $(root)
-    .children()
-    .each((_, el) => {
+  const processList = (elements: AnyNode[]): BlogContentNode[] => {
+    const nodes: BlogContentNode[] = [];
+    for (const el of elements) {
+      if (el.type !== "tag") continue;
       const $el = $(el);
-      const tag = el.type === "tag" ? el.name.toLowerCase() : "";
+      const tag = el.name.toLowerCase();
       const align = alignFromEl($, el);
 
-      if (tag === "h2" || tag === "h3") {
+      if (HEADING_TAGS.has(tag)) {
         const text = $el.text().trim();
-        if (!text) return;
-        nodes.push({ type: "heading", level: tag === "h2" ? 2 : 3, id: uniqueId(text), text, ...(align ? { align } : {}) });
-        return;
+        if (text) {
+          const level = Number(tag[1]) as BlogHeadingLevel;
+          nodes.push({ type: "heading", level, id: uniqueId(text), text, ...(align ? { align } : {}) });
+        }
+        continue;
+      }
+      if (tag === "hr") {
+        nodes.push({ type: "separator" });
+        continue;
+      }
+      if (tag === "pre") {
+        const codeEl = $el.find("code").first();
+        const code = (codeEl.length ? codeEl : $el).text().replace(/\n$/, "");
+        const langMatch = /language-(\S+)/.exec(codeEl.attr("class") ?? "");
+        if (code.trim()) nodes.push({ type: "code", code, ...(langMatch ? { language: langMatch[1] } : {}) });
+        continue;
       }
       if (tag === "p") {
         const children = parseInline($, el);
+        const images = collectInlineImages($, el);
         if (children.length) nodes.push({ type: "paragraph", children, ...(align ? { align } : {}) });
-        return;
+        nodes.push(...images);
+        continue;
       }
       if (tag === "ul" || tag === "ol") {
         const items = $el
@@ -185,13 +235,13 @@ function parseContent(html: string): BlogContentNode[] {
           .map((li) => parseInline($, li))
           .filter((item) => item.length > 0);
         if (items.length) nodes.push({ type: "list", ordered: tag === "ol", items });
-        return;
+        continue;
       }
-      if (tag === "blockquote") {
+      if (tag === "blockquote" || tag === "cite") {
         const text = $el.clone().find("p").first();
         const children = text.length ? parseInline($, text.get(0)!) : parseInline($, el);
         if (children.length) nodes.push({ type: "blockquote", children });
-        return;
+        continue;
       }
       if (tag === "table") {
         const columns = $el
@@ -205,7 +255,7 @@ function parseContent(html: string): BlogContentNode[] {
           .map((tr) => $(tr).find("td").toArray().map((td) => $(td).text().trim()));
         const caption = $el.find("caption").first().text().trim() || undefined;
         if (columns.length && rows.length) nodes.push({ type: "table", ...(caption ? { caption } : {}), columns, rows });
-        return;
+        continue;
       }
       if (tag === "figure") {
         const img = $el.find("img").first();
@@ -214,21 +264,42 @@ function parseContent(html: string): BlogContentNode[] {
           const alt = img.attr("alt") ?? "";
           const caption = $el.find("figcaption").first().text().trim() || undefined;
           if (src && alt) nodes.push({ type: "image", src, alt, ...(caption ? { caption } : {}) });
+          continue;
         }
-        return;
+        // A figure with no <img> (e.g. an unsupported embed) — try its children instead.
+        nodes.push(...processList((el as unknown as { children: AnyNode[] }).children ?? []));
+        continue;
       }
       if (tag === "img") {
         const src = $el.attr("src") ?? "";
         const alt = $el.attr("alt") ?? "";
         if (src && alt) nodes.push({ type: "image", src, alt });
-        return;
+        continue;
       }
-      // Anything else (script, iframe, form, embeds, raw divs) is dropped.
-      // A `style` *attribute* on allow-listed tags is read above; a literal
-      // <style> tag or inline event handler never reaches here.
-    });
+      if (tag === "a" && /wp-block-button__link/.test($el.attr("class") ?? "")) {
+        const children = parseInline($, el);
+        if (children.length) nodes.push({ type: "paragraph", children });
+        continue;
+      }
+      if (DROP_TAGS.has(tag)) continue;
+      const classes = ($el.attr("class") ?? "").split(/\s+/);
+      if (RECURSE_TAGS.has(tag) || classes.some((c) => c.startsWith("wp-block-"))) {
+        // Group/Columns/Cover/Media-&-Text and any other unrecognised WordPress
+        // block wrapper: keep its content instead of silently dropping it.
+        nodes.push(...processList((el as unknown as { children: AnyNode[] }).children ?? []));
+        continue;
+      }
+      // Anything else with no known mapping (embeds, raw markup) is dropped —
+      // never dangerouslySetInnerHTML'd, per the sanitisation contract.
+    }
+    return nodes;
+  };
 
-  return nodes;
+  // cheerio.load() wraps a fragment in an implicit <html><body>, so the
+  // actual content lives one level below root.
+  const root = $("body").get(0);
+  if (!root) return [];
+  return processList((root as unknown as { children: AnyNode[] }).children ?? []);
 }
 
 interface WpTerm {
@@ -256,7 +327,7 @@ interface WpPost {
   _embedded?: {
     "wp:featuredmedia"?: { source_url: string; alt_text?: string }[];
     "wp:term"?: WpTerm[][];
-    author?: { name: string }[];
+    author?: { name: string; avatar_urls?: Record<string, string> }[];
   };
   yoast_head_json?: {
     title?: string;
@@ -337,6 +408,14 @@ function normalisePost(post: WpPost, hierarchy: Map<number, WpCategory>): BlogAr
   const yoast = post.yoast_head_json;
   const keywords = readStringArrayMeta(post, "meta_keywords").join(", ") || undefined;
 
+  const wpAuthor = post._embedded?.author?.[0];
+  const authorAvatar = wpAuthor?.avatar_urls ? Object.values(wpAuthor.avatar_urls).pop() : undefined;
+  const author: BlogPerson | null = wpAuthor?.name
+    ? { name: wpAuthor.name, verified: true, ...(authorAvatar ? { avatarUrl: authorAvatar } : {}) }
+    : null;
+  const reviewerName = readMeta(post, "reviewer_name");
+  const reviewer: BlogPerson | null = typeof reviewerName === "string" && reviewerName.trim() ? { name: reviewerName.trim(), verified: true } : null;
+
   return {
     id: String(post.id),
     slug: post.slug,
@@ -351,8 +430,8 @@ function normalisePost(post: WpPost, hierarchy: Map<number, WpCategory>): BlogAr
     tags,
     ...(publishedAt ? { publishedAt } : {}),
     ...(updatedAt && updatedAt !== publishedAt ? { updatedAt } : {}),
-    author: null,
-    reviewer: null,
+    author,
+    reviewer,
     reviewStatus: (() => {
       const v = readMeta(post, "review_status");
       return v === "REVIEW_PENDING" || v === "REVIEWED" ? v : "UNASSIGNED";
@@ -518,5 +597,87 @@ export async function fetchBlogArticleBySlug(slug: string): Promise<BlogArticle 
   } catch (error) {
     console.error(`[wordpress-blog] article fetch failed for "${slug}":`, error);
     return cached?.data;
+  }
+}
+
+interface WpComment {
+  id: number;
+  parent: number;
+  author_name: string;
+  author_avatar_urls?: Record<string, string>;
+  content: { rendered: string };
+  date_gmt: string;
+}
+
+function normaliseComment(c: WpComment): BlogComment {
+  const avatarUrl = c.author_avatar_urls ? Object.values(c.author_avatar_urls).pop() : undefined;
+  return {
+    id: String(c.id),
+    ...(c.parent ? { parentId: String(c.parent) } : {}),
+    authorName: c.author_name || "Anonymous",
+    ...(avatarUrl ? { avatarUrl } : {}),
+    content: decodeText(c.content.rendered),
+    publishedAt: toIso(c.date_gmt) ?? new Date().toISOString(),
+  };
+}
+
+const COMMENTS_CACHE_TTL_MS = 60 * 1000; // short: a poster should see their own approved comment appear promptly
+const commentsCache = new Map<string, { data: BlogComment[]; expires: number }>();
+
+export async function fetchComments(postId: string): Promise<BlogComment[]> {
+  const now = Date.now();
+  const cached = commentsCache.get(postId);
+  if (cached && cached.expires > now) return cached.data;
+  try {
+    const result = await wpFetch(
+      `/wp-json/wp/v2/comments?post=${encodeURIComponent(postId)}&status=approve&per_page=100&order=asc`,
+    );
+    const raw = result && Array.isArray(result.data) ? (result.data as WpComment[]) : [];
+    const data = raw.map(normaliseComment);
+    commentsCache.set(postId, { data, expires: now + COMMENTS_CACHE_TTL_MS });
+    return data;
+  } catch (error) {
+    console.error(`[wordpress-blog] comments fetch failed for post ${postId}:`, error);
+    return cached?.data ?? [];
+  }
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export async function submitComment(input: BlogCommentInput): Promise<BlogCommentResult> {
+  if (!CMS_ORIGIN) return { ok: false, reason: "Comments are not available right now." };
+  const authorName = input.authorName.trim().slice(0, 100);
+  const authorEmail = input.authorEmail.trim();
+  const content = input.content.trim().slice(0, 5000);
+  if (!authorName || !isValidEmail(authorEmail) || !content) {
+    return { ok: false, reason: "Please fill in your name, a valid email and a comment." };
+  }
+  const postId = Number(input.postId);
+  if (!Number.isFinite(postId)) return { ok: false, reason: "Unknown article." };
+
+  try {
+    const res = await fetch(`${CMS_ORIGIN}/wp-json/wp/v2/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        post: postId,
+        author_name: authorName,
+        author_email: authorEmail,
+        content,
+        ...(input.parentId ? { parent: Number(input.parentId) } : {}),
+      }),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      return { ok: false, reason: body?.message ?? "Your comment could not be submitted." };
+    }
+    commentsCache.delete(input.postId);
+    return { ok: true };
+  } catch (error) {
+    console.error(`[wordpress-blog] comment submit failed for post ${input.postId}:`, error);
+    return { ok: false, reason: "Your comment could not be submitted. Please try again." };
   }
 }

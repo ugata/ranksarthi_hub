@@ -7,6 +7,9 @@ function Inline({ nodes }: { nodes: BlogInline[] }) {
     let content: React.ReactNode = node.text;
     if (node.bold) content = <strong className="font-semibold text-primary">{content}</strong>;
     if (node.italic) content = <em>{content}</em>;
+    if (node.underline) content = <u>{content}</u>;
+    if (node.strikethrough) content = <s>{content}</s>;
+    if (node.code) content = <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.9em] text-primary">{content}</code>;
     if (node.href) {
       content = node.href.startsWith("/") ? (
         <Link to={node.href} className="font-medium text-accent underline underline-offset-4 hover:text-red-hover">
@@ -34,13 +37,20 @@ export function BlogContentRenderer({ content }: { content: BlogContentNode[] })
     <div className="min-w-0 space-y-6 text-base leading-relaxed text-ink/85">
       {content.map((node, index) => {
         if (node.type === "heading") {
-          const Tag = node.level === 2 ? "h2" : "h3";
+          const Tag = `h${node.level}` as const;
+          const sizeByLevel: Record<typeof node.level, string> = {
+            2: "pt-5 text-2xl",
+            3: "pt-2 text-xl",
+            4: "pt-2 text-lg",
+            5: "pt-1 text-base",
+            6: "pt-1 text-sm uppercase tracking-wide",
+          };
           return (
             <Tag
               key={node.id}
               id={node.id}
               style={node.align ? { textAlign: node.align } : undefined}
-              className={`${node.level === 2 ? "pt-5 text-2xl" : "pt-2 text-xl"} scroll-mt-28 font-bold text-primary`}
+              className={`${sizeByLevel[node.level]} scroll-mt-28 font-bold text-primary`}
             >
               {node.text}
             </Tag>
@@ -67,6 +77,13 @@ export function BlogContentRenderer({ content }: { content: BlogContentNode[] })
           </div>
         );
         if (node.type === "image") return <figure key={index}><img src={node.src} alt={node.alt} loading="lazy" className="w-full rounded-xl object-cover" />{node.caption ? <figcaption className="mt-2 text-sm text-muted-foreground">{node.caption}</figcaption> : null}</figure>;
+        if (node.type === "code")
+          return (
+            <pre key={index} className="overflow-x-auto rounded-lg bg-navy-deep p-4 text-sm text-primary-foreground">
+              <code className={node.language ? `language-${node.language}` : undefined}>{node.code}</code>
+            </pre>
+          );
+        if (node.type === "separator") return <hr key={index} className="border-border" />;
         if (node.type === "callout") return <aside key={index} className={`rounded-lg border px-5 py-4 ${node.tone === "caution" ? "border-warning/30 bg-warning/10" : "border-border bg-ice"}`}>{node.title ? <p className="mb-1 font-semibold text-primary">{node.title}</p> : null}<p><Inline nodes={node.children} /></p></aside>;
         return null;
       })}

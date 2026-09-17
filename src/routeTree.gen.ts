@@ -19,6 +19,7 @@ import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as PlatformSubjectIndexRouteImport } from './routes/$platform.$subject.index'
 import { Route as PlatformSubjectChapterRouteImport } from './routes/$platform.$subject.$chapter'
+import { Route as ApiPublicBlogCommentsRouteImport } from './routes/api/public/blog-comments'
 import { Route as ApiPublicFreshnessRefreshRouteImport } from './routes/api/public/freshness-refresh'
 import { Route as PlatformSubjectChapterTopicRouteImport } from './routes/$platform.$subject.$chapter_.$topic'
 
@@ -72,6 +73,11 @@ const PlatformSubjectChapterRoute = PlatformSubjectChapterRouteImport.update({
   path: '/$platform/$subject/$chapter',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBlogCommentsRoute = ApiPublicBlogCommentsRouteImport.update({
+  id: '/api/public/blog-comments',
+  path: '/api/public/blog-comments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicFreshnessRefreshRoute =
   ApiPublicFreshnessRefreshRouteImport.update({
     id: '/api/public/freshness-refresh',
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/$platform/': typeof PlatformIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/$platform/$subject/$chapter': typeof PlatformSubjectChapterRoute
+  '/api/public/blog-comments': typeof ApiPublicBlogCommentsRoute
   '/api/public/freshness-refresh': typeof ApiPublicFreshnessRefreshRoute
   '/$platform/$subject/': typeof PlatformSubjectIndexRoute
   '/$platform/$subject/$chapter/$topic': typeof PlatformSubjectChapterTopicRoute
@@ -109,6 +116,7 @@ export interface FileRoutesByTo {
   '/$platform': typeof PlatformIndexRoute
   '/blog': typeof BlogIndexRoute
   '/$platform/$subject/$chapter': typeof PlatformSubjectChapterRoute
+  '/api/public/blog-comments': typeof ApiPublicBlogCommentsRoute
   '/api/public/freshness-refresh': typeof ApiPublicFreshnessRefreshRoute
   '/$platform/$subject': typeof PlatformSubjectIndexRoute
   '/$platform/$subject/$chapter/$topic': typeof PlatformSubjectChapterTopicRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/$platform/': typeof PlatformIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/$platform/$subject/$chapter': typeof PlatformSubjectChapterRoute
+  '/api/public/blog-comments': typeof ApiPublicBlogCommentsRoute
   '/api/public/freshness-refresh': typeof ApiPublicFreshnessRefreshRoute
   '/$platform/$subject/': typeof PlatformSubjectIndexRoute
   '/$platform/$subject/$chapter_/$topic': typeof PlatformSubjectChapterTopicRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/$platform/'
     | '/blog/'
     | '/$platform/$subject/$chapter'
+    | '/api/public/blog-comments'
     | '/api/public/freshness-refresh'
     | '/$platform/$subject/'
     | '/$platform/$subject/$chapter/$topic'
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/$platform'
     | '/blog'
     | '/$platform/$subject/$chapter'
+    | '/api/public/blog-comments'
     | '/api/public/freshness-refresh'
     | '/$platform/$subject'
     | '/$platform/$subject/$chapter/$topic'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/$platform/'
     | '/blog/'
     | '/$platform/$subject/$chapter'
+    | '/api/public/blog-comments'
     | '/api/public/freshness-refresh'
     | '/$platform/$subject/'
     | '/$platform/$subject/$chapter_/$topic'
@@ -183,6 +195,7 @@ export interface RootRouteChildren {
   PlatformIndexRoute: typeof PlatformIndexRoute
   BlogIndexRoute: typeof BlogIndexRoute
   PlatformSubjectChapterRoute: typeof PlatformSubjectChapterRoute
+  ApiPublicBlogCommentsRoute: typeof ApiPublicBlogCommentsRoute
   ApiPublicFreshnessRefreshRoute: typeof ApiPublicFreshnessRefreshRoute
   PlatformSubjectIndexRoute: typeof PlatformSubjectIndexRoute
   PlatformSubjectChapterTopicRoute: typeof PlatformSubjectChapterTopicRoute
@@ -260,6 +273,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlatformSubjectChapterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/blog-comments': {
+      id: '/api/public/blog-comments'
+      path: '/api/public/blog-comments'
+      fullPath: '/api/public/blog-comments'
+      preLoaderRoute: typeof ApiPublicBlogCommentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/freshness-refresh': {
       id: '/api/public/freshness-refresh'
       path: '/api/public/freshness-refresh'
@@ -287,6 +307,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlatformIndexRoute: PlatformIndexRoute,
   BlogIndexRoute: BlogIndexRoute,
   PlatformSubjectChapterRoute: PlatformSubjectChapterRoute,
+  ApiPublicBlogCommentsRoute: ApiPublicBlogCommentsRoute,
   ApiPublicFreshnessRefreshRoute: ApiPublicFreshnessRefreshRoute,
   PlatformSubjectIndexRoute: PlatformSubjectIndexRoute,
   PlatformSubjectChapterTopicRoute: PlatformSubjectChapterTopicRoute,
