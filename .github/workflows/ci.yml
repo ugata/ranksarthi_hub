@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+
+      - name: Build
+        run: npx vite build
+
+      # The repo currently has a large pre-existing gap between its source
+      # formatting and the configured prettier rules (unrelated to
+      # correctness), so lint is informational only for now rather than a
+      # hard gate. Tighten this once the codebase is reformatted.
+      - name: Lint (non-blocking)
+        run: npm run lint
+        continue-on-error: true
