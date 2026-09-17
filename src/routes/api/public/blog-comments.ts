@@ -1,15 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { submitComment } from "@/server/wordpress-blog";
+import { fetchComments, submitComment } from "@/server/wordpress-blog";
 import type { BlogCommentInput } from "@/content/blog";
 
 /**
- * Submitting a comment only ever happens from a browser form, never during
- * SSR, so — unlike the read paths — this needs a real endpoint rather than
- * createServerOnlyFn (which throws if called client-side by design).
+ * Real endpoint rather than createServerOnlyFn for both handlers: comment
+ * submission only ever happens from a browser form, and comment listing is
+ * read by a route loader that can re-run client-side during a SPA
+ * navigation — createServerOnlyFn throws in either case when called outside
+ * a server request context.
  */
 export const Route = createFileRoute("/api/public/blog-comments")({
   server: {
     handlers: {
+      GET: async ({ request }) => {
+        const url = new URL(request.url);
+        const postId = url.searchParams.get("postId");
+        if (!postId) return Response.json({ error: "Missing postId." }, { status: 400 });
+        const comments = await fetchComments(postId);
+        return Response.json(comments);
+      },
       POST: async ({ request }) => {
         let body: Partial<BlogCommentInput>;
         try {

@@ -1,4 +1,3 @@
-import { createServerOnlyFn } from "@tanstack/react-start";
 import type {
   BlogArticle,
   BlogComment,
@@ -10,49 +9,52 @@ import type {
 } from "./types";
 
 /**
- * createServerOnlyFn keeps the actual WordPress fetch/parse/cache logic
- * (src/server/wordpress-blog.ts) out of the client bundle: the build
- * strips the function body from the client output entirely, and calling it
- * client-side throws instead of silently doing the wrong thing.
+ * All reads and writes go through real /api/public/* endpoints (see
+ * src/routes/api/public/) rather than createServerOnlyFn: a route loader
+ * using this provider can re-run client-side during a SPA navigation (e.g.
+ * clicking "Blog" while already on /blog), and createServerOnlyFn throws by
+ * design when called outside a server request context. A plain fetch works
+ * the same way whether it runs during SSR or in the browser.
  *
- * That's the right fit for the read paths below, which only ever run from
- * a route loader (SSR or a client-side navigation that re-runs the same
- * loader code, which TanStack Start still executes server-side via this
- * mechanism). Comment *submission* is different — it only ever happens
- * from a browser form handler — so it goes through the real
- * /api/public/blog-comments endpoint instead; see that route file.
+ * Server-side, fetch() has no implicit base URL, so requests go over
+ * loopback to this same process; client-side, a relative path resolves
+ * against the page origin.
  */
-const getBlogList = createServerOnlyFn(async (params?: BlogListParams): Promise<BlogListResult> => {
-  const { fetchBlogList } = await import("@/server/wordpress-blog");
-  return fetchBlogList(params);
-});
-
-const getBlogArticleBySlug = createServerOnlyFn(async (slug: string): Promise<BlogArticle | undefined> => {
-  const { fetchBlogArticleBySlug } = await import("@/server/wordpress-blog");
-  return fetchBlogArticleBySlug(slug);
-});
-
-const getComments = createServerOnlyFn(async (articleId: string): Promise<BlogComment[]> => {
-  const { fetchComments } = await import("@/server/wordpress-blog");
-  return fetchComments(articleId);
-});
+function apiBase(): string {
+  if (typeof window !== "undefined") return "";
+  const port = process.env["PORT"] ?? "3000";
+  return `http://127.0.0.1:${port}`;
+}
 
 export class WordPressBlogDataProvider implements BlogDataProvider {
   async listArticles(params?: BlogListParams): Promise<BlogListResult> {
-    return getBlogList(params);
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.perPage) query.set("perPage", String(params.perPage));
+    if (params?.category) query.set("category", params.category);
+    if (params?.tag) query.set("tag", params.tag);
+    const res = await fetch(`${apiBase()}/api/public/blog-list?${query.toString()}`);
+    if (!res.ok) throw new Error(`Failed to load blog list (${res.status}).`);
+    return (await res.json()) as BlogListResult;
   }
 
   async getArticleBySlug(slug: string): Promise<BlogArticle | undefined> {
-    return getBlogArticleBySlug(slug);
+    const res = await fetch(`${apiBase()}/api/public/blog-article?slug=${encodeURIComponent(slug)}`);
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`Failed to load blog article (${res.status}).`);
+    const body = (await res.json()) as BlogArticle | null;
+    return body ?? undefined;
   }
 
   async listComments(articleId: string): Promise<BlogComment[]> {
-    return getComments(articleId);
+    const res = await fetch(`${apiBase()}/api/public/blog-comments?postId=${encodeURIComponent(articleId)}`);
+    if (!res.ok) throw new Error(`Failed to load comments (${res.status}).`);
+    return (await res.json()) as BlogComment[];
   }
 
   async submitComment(input: BlogCommentInput): Promise<BlogCommentResult> {
     try {
-      const res = await fetch("/api/public/blog-comments", {
+      const res = await fetch(`${apiBase()}/api/public/blog-comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
