@@ -1,23 +1,21 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createServerOnlyFn } from "@tanstack/react-start";
 import type { BlogArticle, BlogDataProvider } from "./types";
 
 /**
- * createServerFn keeps the actual WordPress fetch/parse/cache logic
- * (src/server/wordpress-blog.ts) out of the client bundle entirely: the
- * client gets a thin RPC stub, the handler body only ever runs server-side,
- * whether this is called during SSR or a client-side navigation.
+ * createServerOnlyFn keeps the actual WordPress fetch/parse/cache logic
+ * (src/server/wordpress-blog.ts) out of the client bundle: the build
+ * strips the function body from the client output entirely, and calling it
+ * client-side throws instead of silently doing the wrong thing.
  */
-const getBlogList = createServerFn({ method: "GET" }).handler(async (): Promise<BlogArticle[]> => {
+const getBlogList = createServerOnlyFn(async (): Promise<BlogArticle[]> => {
   const { fetchBlogList } = await import("@/server/wordpress-blog");
   return fetchBlogList();
 });
 
-const getBlogArticle = createServerFn({ method: "GET" })
-  .validator((slug: string) => slug)
-  .handler(async ({ data: slug }): Promise<BlogArticle | undefined> => {
-    const { fetchBlogArticleBySlug } = await import("@/server/wordpress-blog");
-    return fetchBlogArticleBySlug(slug);
-  });
+const getBlogArticleBySlug = createServerOnlyFn(async (slug: string): Promise<BlogArticle | undefined> => {
+  const { fetchBlogArticleBySlug } = await import("@/server/wordpress-blog");
+  return fetchBlogArticleBySlug(slug);
+});
 
 export class WordPressBlogDataProvider implements BlogDataProvider {
   async listArticles(): Promise<BlogArticle[]> {
@@ -25,6 +23,6 @@ export class WordPressBlogDataProvider implements BlogDataProvider {
   }
 
   async getArticleBySlug(slug: string): Promise<BlogArticle | undefined> {
-    return getBlogArticle({ data: slug });
+    return getBlogArticleBySlug(slug);
   }
 }

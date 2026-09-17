@@ -1,4 +1,3 @@
-import "server-only";
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { getUrl } from "@/content/registry";
@@ -100,7 +99,9 @@ function slugify(text: string): string {
 function parseContent(html: string): BlogContentNode[] {
   if (!html) return [];
   const $ = cheerio.load(html);
-  const root = $.root().get(0);
+  // cheerio.load() wraps a fragment in an implicit <html><body>, so the
+  // actual content lives one level below root.
+  const root = $("body").get(0);
   if (!root) return [];
   const nodes: BlogContentNode[] = [];
   const seenIds = new Set<string>();
