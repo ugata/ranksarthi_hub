@@ -1,11 +1,30 @@
-import type { BlogArticle, BlogDataProvider } from "./types";
+import type { BlogArticle, BlogDataProvider, BlogListParams, BlogListResult } from "./types";
 import { WordPressBlogDataProvider } from "./wordpress-provider";
 
+const DEFAULT_PER_PAGE = 12;
+
+function paginate(all: BlogArticle[], params: BlogListParams = {}): BlogListResult {
+  const filtered = all.filter(
+    (a) =>
+      (!params.category || a.category === params.category) &&
+      (!params.tag || a.tags.includes(params.tag)),
+  );
+  const perPage = params.perPage ?? DEFAULT_PER_PAGE;
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const page = Math.min(Math.max(1, params.page ?? 1), totalPages);
+  const start = (page - 1) * perPage;
+  return {
+    items: filtered.slice(start, start + perPage),
+    pagination: { page, perPage, totalItems, totalPages },
+  };
+}
+
 export class LocalBlogDataProvider implements BlogDataProvider {
-  async listArticles(): Promise<BlogArticle[]> {
-    if (!import.meta.env.DEV) return [];
+  async listArticles(params?: BlogListParams): Promise<BlogListResult> {
+    if (!import.meta.env.DEV) return paginate([], params);
     const { localBlogArticles } = await import("./local-data");
-    return localBlogArticles;
+    return paginate(localBlogArticles, params);
   }
 
   async getArticleBySlug(slug: string): Promise<BlogArticle | undefined> {
@@ -16,8 +35,8 @@ export class LocalBlogDataProvider implements BlogDataProvider {
 }
 
 export class EmptyBlogDataProvider implements BlogDataProvider {
-  async listArticles(): Promise<BlogArticle[]> {
-    return [];
+  async listArticles(params?: BlogListParams): Promise<BlogListResult> {
+    return paginate([], params);
   }
 
   async getArticleBySlug(): Promise<BlogArticle | undefined> {

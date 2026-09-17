@@ -8,16 +8,24 @@ export type BlogCategory =
   | "Preparation Strategy"
   | "Study Resources";
 
-export interface BlogInline {
+/** Safe, curated formatting an editor can apply from the WordPress block editor. */
+export interface BlogInlineStyle {
+  color?: string;
+  backgroundColor?: string;
+}
+
+export interface BlogInline extends BlogInlineStyle {
   text: string;
   bold?: boolean;
   italic?: boolean;
   href?: string;
 }
 
+export type BlogAlign = "left" | "center" | "right";
+
 export type BlogContentNode =
-  | { type: "heading"; level: 2 | 3; id: string; text: string }
-  | { type: "paragraph"; children: BlogInline[] }
+  | { type: "heading"; level: 2 | 3; id: string; text: string; align?: BlogAlign }
+  | { type: "paragraph"; children: BlogInline[]; align?: BlogAlign }
   | { type: "list"; ordered?: boolean; items: BlogInline[][] }
   | { type: "blockquote"; children: BlogInline[] }
   | { type: "table"; caption?: string; columns: string[]; rows: string[][] }
@@ -48,6 +56,8 @@ export interface BlogArticle {
   featuredImageAlt: string;
   primaryExam: BlogExam;
   category: BlogCategory;
+  /** Child category under `category`, when the CMS category has a parent. */
+  subCategory?: string;
   tags: string[];
   publishedAt?: string;
   updatedAt?: string;
@@ -66,7 +76,26 @@ export interface BlogArticle {
   status: "draft" | "published";
 }
 
+export interface BlogPagination {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export interface BlogListResult {
+  items: BlogArticle[];
+  pagination: BlogPagination;
+}
+
+export interface BlogListParams {
+  page?: number;
+  perPage?: number;
+  category?: BlogCategory;
+  tag?: string;
+}
+
 export interface BlogDataProvider {
-  listArticles(): Promise<BlogArticle[]>;
+  listArticles(params?: BlogListParams): Promise<BlogListResult>;
   getArticleBySlug(slug: string): Promise<BlogArticle | undefined>;
 }

@@ -20,7 +20,12 @@ function Inline({ nodes }: { nodes: BlogInline[] }) {
         content
       );
     }
-    return <span key={`${index}-${node.text}`}>{content}</span>;
+    const style = node.color || node.backgroundColor ? { color: node.color, backgroundColor: node.backgroundColor } : undefined;
+    return (
+      <span key={`${index}-${node.text}`} style={style}>
+        {content}
+      </span>
+    );
   });
 }
 
@@ -30,9 +35,23 @@ export function BlogContentRenderer({ content }: { content: BlogContentNode[] })
       {content.map((node, index) => {
         if (node.type === "heading") {
           const Tag = node.level === 2 ? "h2" : "h3";
-          return <Tag key={node.id} id={node.id} className={`${node.level === 2 ? "pt-5 text-2xl" : "pt-2 text-xl"} scroll-mt-28 font-bold text-primary`}>{node.text}</Tag>;
+          return (
+            <Tag
+              key={node.id}
+              id={node.id}
+              style={node.align ? { textAlign: node.align } : undefined}
+              className={`${node.level === 2 ? "pt-5 text-2xl" : "pt-2 text-xl"} scroll-mt-28 font-bold text-primary`}
+            >
+              {node.text}
+            </Tag>
+          );
         }
-        if (node.type === "paragraph") return <p key={index}><Inline nodes={node.children} /></p>;
+        if (node.type === "paragraph")
+          return (
+            <p key={index} style={node.align ? { textAlign: node.align } : undefined}>
+              <Inline nodes={node.children} />
+            </p>
+          );
         if (node.type === "list") {
           const Tag = node.ordered ? "ol" : "ul";
           return <Tag key={index} className={`space-y-2 pl-6 ${node.ordered ? "list-decimal" : "list-disc"} marker:text-accent`}>{node.items.map((item, itemIndex) => <li key={itemIndex}><Inline nodes={item} /></li>)}</Tag>;

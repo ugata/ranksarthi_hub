@@ -1,5 +1,5 @@
 import { createServerOnlyFn } from "@tanstack/react-start";
-import type { BlogArticle, BlogDataProvider } from "./types";
+import type { BlogArticle, BlogDataProvider, BlogListParams, BlogListResult } from "./types";
 
 /**
  * createServerOnlyFn keeps the actual WordPress fetch/parse/cache logic
@@ -7,9 +7,9 @@ import type { BlogArticle, BlogDataProvider } from "./types";
  * strips the function body from the client output entirely, and calling it
  * client-side throws instead of silently doing the wrong thing.
  */
-const getBlogList = createServerOnlyFn(async (): Promise<BlogArticle[]> => {
+const getBlogList = createServerOnlyFn(async (params?: BlogListParams): Promise<BlogListResult> => {
   const { fetchBlogList } = await import("@/server/wordpress-blog");
-  return fetchBlogList();
+  return fetchBlogList(params);
 });
 
 const getBlogArticleBySlug = createServerOnlyFn(async (slug: string): Promise<BlogArticle | undefined> => {
@@ -18,8 +18,8 @@ const getBlogArticleBySlug = createServerOnlyFn(async (slug: string): Promise<Bl
 });
 
 export class WordPressBlogDataProvider implements BlogDataProvider {
-  async listArticles(): Promise<BlogArticle[]> {
-    return getBlogList();
+  async listArticles(params?: BlogListParams): Promise<BlogListResult> {
+    return getBlogList(params);
   }
 
   async getArticleBySlug(slug: string): Promise<BlogArticle | undefined> {

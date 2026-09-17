@@ -23,11 +23,9 @@ export const Route = createFileRoute("/blog/$slug")({
   loader: async ({ params }) => {
     const article = await blogDataProvider.getArticleBySlug(params.slug);
     if (!article) throw notFound();
-    const all = await blogDataProvider.listArticles();
-    const relatedArticles = article.relatedArticleSlugs
-      .map((slug) => all.find((candidate) => candidate.slug === slug))
-      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
-      .slice(0, 3);
+    const relatedArticles = (
+      await Promise.all(article.relatedArticleSlugs.slice(0, 3).map((slug) => blogDataProvider.getArticleBySlug(slug)))
+    ).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
     return { article, relatedArticles };
   },
   head: ({ params, loaderData }) => {

@@ -2,11 +2,15 @@ import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { getUrl } from "@/content/registry";
 import type {
+  BlogAlign,
   BlogArticle,
   BlogCategory,
   BlogContentNode,
   BlogExam,
   BlogInline,
+  BlogInlineStyle,
+  BlogListParams,
+  BlogListResult,
   BlogSource,
 } from "@/content/blog/types";
 
@@ -21,7 +25,9 @@ import type {
 
 const CMS_ORIGIN = (process.env["WP_CMS_ORIGIN"] ?? "").replace(/\/+$/, "");
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const TAXONOMY_CACHE_TTL_MS = 30 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
+const DEFAULT_PER_PAGE = 12;
 const PLACEHOLDER_IMAGE = "/brand/rank-sarthi-logo.png";
 
 const CATEGORY_MAP: Record<string, BlogCategory> = {
@@ -32,14 +38,6 @@ const CATEGORY_MAP: Record<string, BlogCategory> = {
   "preparation strategy": "Preparation Strategy",
   "study resources": "Study Resources",
 };
-
-function mapCategory(names: string[]): BlogCategory {
-  for (const name of names) {
-    const mapped = CATEGORY_MAP[name.trim().toLowerCase()];
-    if (mapped) return mapped;
-  }
-  return "Study Resources";
-}
 
 function mapExam(value: string | undefined): BlogExam {
   const v = (value ?? "").trim().toUpperCase();
@@ -56,12 +54,58 @@ function isSafeHref(href: string): boolean {
   return href.startsWith("/") || /^https?:|^mailto:|^tel:/i.test(href);
 }
 
+/** Allow-lists a curated set of CSS colour formats; rejects anything else (url(), expressions, breakouts). */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\)|[a-z-]+)$/i;
+function safeColor(value: string | undefined): string | undefined {
+  const v = value?.trim();
+  return v && SAFE_COLOR.test(v) ? v : undefined;
+}
+
+/** Reads editor-applied colour/background from a style attribute, allow-list only. */
+function styleFromAttr(style: string | undefined): BlogInlineStyle {
+  if (!style) return {};
+  const out: BlogInlineStyle = {};
+  for (const decl of style.split(";")) {
+    const [prop, ...rest] = decl.split(":");
+    const value = rest.join(":").trim();
+    if (!prop || !value) continue;
+    const name = prop.trim().toLowerCase();
+    if (name === "color") {
+      const c = safeColor(value);
+      if (c) out.color = c;
+    } else if (name === "background-color") {
+      const c = safeColor(value);
+      if (c) out.backgroundColor = c;
+    }
+  }
+  return out;
+}
+
+/** WordPress's block editor marks alignment via has-text-align-* classes or inline style. */
+function alignFromEl($: cheerio.CheerioAPI, el: AnyNode): BlogAlign | undefined {
+  const cls = $(el).attr("class") ?? "";
+  if (/has-text-align-center/.test(cls)) return "center";
+  if (/has-text-align-right/.test(cls)) return "right";
+  if (/has-text-align-left/.test(cls)) return "left";
+  const style = $(el).attr("style") ?? "";
+  const m = /text-align\s*:\s*(left|center|right)/i.exec(style);
+  return m ? (m[1]!.toLowerCase() as BlogAlign) : undefined;
+}
+
 function parseInline($: cheerio.CheerioAPI, node: AnyNode): BlogInline[] {
   const out: BlogInline[] = [];
-  const walk = (el: AnyNode, bold: boolean, italic: boolean, href?: string) => {
+  const walk = (el: AnyNode, bold: boolean, italic: boolean, href: string | undefined, style: BlogInlineStyle) => {
     if (el.type === "text") {
       const text = (el as unknown as { data: string }).data;
-      if (text) out.push({ text, ...(bold ? { bold: true } : {}), ...(italic ? { italic: true } : {}), ...(href ? { href } : {}) });
+      if (text) {
+        out.push({
+          text,
+          ...(bold ? { bold: true } : {}),
+          ...(italic ? { italic: true } : {}),
+          ...(href ? { href } : {}),
+          ...style,
+        });
+      }
       return;
     }
     if (el.type !== "tag") return;
@@ -73,16 +117,18 @@ function parseInline($: cheerio.CheerioAPI, node: AnyNode): BlogInline[] {
       const raw = $(el).attr("href") ?? "";
       if (isSafeHref(raw)) nextHref = raw;
     }
+    const elStyle = styleFromAttr($(el).attr("style"));
+    const nextStyle: BlogInlineStyle = { ...style, ...elStyle };
     if (tag === "br") {
       out.push({ text: " " });
       return;
     }
     for (const child of (el as unknown as { children: AnyNode[] }).children ?? []) {
-      walk(child, nextBold, nextItalic, nextHref);
+      walk(child, nextBold, nextItalic, nextHref, nextStyle);
     }
   };
   for (const child of (node as unknown as { children: AnyNode[] }).children ?? []) {
-    walk(child, false, false, undefined);
+    walk(child, false, false, undefined, {});
   }
   return out.filter((n) => n.text.trim().length > 0 || n.href);
 }
@@ -119,16 +165,17 @@ function parseContent(html: string): BlogContentNode[] {
     .each((_, el) => {
       const $el = $(el);
       const tag = el.type === "tag" ? el.name.toLowerCase() : "";
+      const align = alignFromEl($, el);
 
       if (tag === "h2" || tag === "h3") {
         const text = $el.text().trim();
         if (!text) return;
-        nodes.push({ type: "heading", level: tag === "h2" ? 2 : 3, id: uniqueId(text), text });
+        nodes.push({ type: "heading", level: tag === "h2" ? 2 : 3, id: uniqueId(text), text, ...(align ? { align } : {}) });
         return;
       }
       if (tag === "p") {
         const children = parseInline($, el);
-        if (children.length) nodes.push({ type: "paragraph", children });
+        if (children.length) nodes.push({ type: "paragraph", children, ...(align ? { align } : {}) });
         return;
       }
       if (tag === "ul" || tag === "ol") {
@@ -176,7 +223,9 @@ function parseContent(html: string): BlogContentNode[] {
         if (src && alt) nodes.push({ type: "image", src, alt });
         return;
       }
-      // Anything else (script, iframe, form, style, embeds, raw divs) is dropped.
+      // Anything else (script, iframe, form, embeds, raw divs) is dropped.
+      // A `style` *attribute* on allow-listed tags is read above; a literal
+      // <style> tag or inline event handler never reaches here.
     });
 
   return nodes;
@@ -186,6 +235,12 @@ interface WpTerm {
   id: number;
   name: string;
   taxonomy: string;
+}
+
+interface WpCategory {
+  id: number;
+  name: string;
+  parent: number;
 }
 
 interface WpPost {
@@ -241,11 +296,32 @@ function readSourcesMeta(post: WpPost): BlogSource[] {
     .map((v) => ({ name: v.name, sourceType: v.sourceType as BlogSource["sourceType"], url: v.url, official: !!v.official }));
 }
 
-function normalisePost(post: WpPost): BlogArticle {
+/** Resolves the frontend category plus an optional child category name from WP's category hierarchy. */
+function resolveCategory(
+  terms: WpTerm[],
+  hierarchy: Map<number, WpCategory>,
+): { category: BlogCategory; subCategory?: string } {
+  const categoryTerms = terms.filter((t) => t.taxonomy === "category");
+  for (const term of categoryTerms) {
+    const node = hierarchy.get(term.id);
+    if (node && node.parent) {
+      const parent = hierarchy.get(node.parent);
+      const mapped = parent ? CATEGORY_MAP[parent.name.trim().toLowerCase()] : undefined;
+      if (mapped) return { category: mapped, subCategory: node.name };
+    }
+  }
+  for (const term of categoryTerms) {
+    const mapped = CATEGORY_MAP[term.name.trim().toLowerCase()];
+    if (mapped) return { category: mapped };
+  }
+  return { category: "Study Resources" };
+}
+
+function normalisePost(post: WpPost, hierarchy: Map<number, WpCategory>): BlogArticle {
   const terms = (post._embedded?.["wp:term"] ?? []).flat();
-  const categories = terms.filter((t) => t.taxonomy === "category").map((t) => t.name);
   const tags = terms.filter((t) => t.taxonomy === "post_tag").map((t) => t.name);
   const examTerm = terms.find((t) => t.taxonomy === "primary_exam")?.name;
+  const { category, subCategory } = resolveCategory(terms, hierarchy);
 
   const media = post._embedded?.["wp:featuredmedia"]?.[0];
   const hasImage = !!media?.source_url && !!media?.alt_text;
@@ -270,7 +346,8 @@ function normalisePost(post: WpPost): BlogArticle {
     featuredImage: hasImage ? media!.source_url : PLACEHOLDER_IMAGE,
     featuredImageAlt: hasImage ? media!.alt_text! : "Rank Sarthi",
     primaryExam: mapExam(examTerm),
-    category: mapCategory(categories),
+    category,
+    ...(subCategory ? { subCategory } : {}),
     tags,
     ...(publishedAt ? { publishedAt } : {}),
     ...(updatedAt && updatedAt !== publishedAt ? { updatedAt } : {}),
@@ -292,41 +369,134 @@ function normalisePost(post: WpPost): BlogArticle {
   };
 }
 
-async function wpFetch(path: string): Promise<unknown> {
+async function wpFetch(path: string): Promise<{ data: unknown; headers: Headers } | null> {
   if (!CMS_ORIGIN) return null;
   const res = await fetch(`${CMS_ORIGIN}${path}`, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`WordPress request failed: ${res.status} ${path}`);
-  return res.json();
+  return { data: await res.json(), headers: res.headers };
 }
 
-let listCache: { data: BlogArticle[]; expires: number } | null = null;
-let listInFlight: Promise<BlogArticle[]> | null = null;
+let categoryHierarchy: { data: Map<number, WpCategory>; expires: number } | null = null;
+let categoryHierarchyInFlight: Promise<Map<number, WpCategory>> | null = null;
+
+async function getCategoryHierarchy(): Promise<Map<number, WpCategory>> {
+  const now = Date.now();
+  if (categoryHierarchy && categoryHierarchy.expires > now) return categoryHierarchy.data;
+  if (categoryHierarchyInFlight) return categoryHierarchyInFlight;
+
+  categoryHierarchyInFlight = (async () => {
+    try {
+      const result = await wpFetch("/wp-json/wp/v2/categories?per_page=100");
+      const raw = Array.isArray(result?.data) ? (result.data as WpCategory[]) : [];
+      const map = new Map(raw.map((c) => [c.id, c]));
+      categoryHierarchy = { data: map, expires: Date.now() + TAXONOMY_CACHE_TTL_MS };
+      return map;
+    } catch (error) {
+      console.error("[wordpress-blog] category hierarchy fetch failed:", error);
+      return categoryHierarchy?.data ?? new Map();
+    } finally {
+      categoryHierarchyInFlight = null;
+    }
+  })();
+  return categoryHierarchyInFlight;
+}
+
+/** category name -> WP category ids (a frontend category can map from >1 WP category, e.g. a parent + its children). */
+async function categoryIdsFor(category: BlogCategory): Promise<number[]> {
+  const hierarchy = await getCategoryHierarchy();
+  const ids: number[] = [];
+  for (const [id, node] of hierarchy) {
+    const own = CATEGORY_MAP[node.name.trim().toLowerCase()];
+    const parent = node.parent ? hierarchy.get(node.parent) : undefined;
+    const viaParent = parent ? CATEGORY_MAP[parent.name.trim().toLowerCase()] : undefined;
+    if (own === category || viaParent === category) ids.push(id);
+  }
+  return ids;
+}
+
+let tagIndex: { data: Map<string, number>; expires: number } | null = null;
+let tagIndexInFlight: Promise<Map<string, number>> | null = null;
+
+async function getTagIndex(): Promise<Map<string, number>> {
+  const now = Date.now();
+  if (tagIndex && tagIndex.expires > now) return tagIndex.data;
+  if (tagIndexInFlight) return tagIndexInFlight;
+
+  tagIndexInFlight = (async () => {
+    try {
+      const result = await wpFetch("/wp-json/wp/v2/tags?per_page=100");
+      const raw = Array.isArray(result?.data) ? (result.data as { id: number; name: string }[]) : [];
+      const map = new Map(raw.map((t) => [t.name.trim().toLowerCase(), t.id]));
+      tagIndex = { data: map, expires: Date.now() + TAXONOMY_CACHE_TTL_MS };
+      return map;
+    } catch (error) {
+      console.error("[wordpress-blog] tag index fetch failed:", error);
+      return tagIndex?.data ?? new Map();
+    } finally {
+      tagIndexInFlight = null;
+    }
+  })();
+  return tagIndexInFlight;
+}
+
+const listCache = new Map<string, { data: BlogListResult; expires: number }>();
+const listInFlight = new Map<string, Promise<BlogListResult>>();
 const articleCache = new Map<string, { data: BlogArticle | undefined; expires: number }>();
 
-export async function fetchBlogList(): Promise<BlogArticle[]> {
-  const now = Date.now();
-  if (listCache && listCache.expires > now) return listCache.data;
-  if (listInFlight) return listInFlight;
+function cacheKey(params: BlogListParams): string {
+  return JSON.stringify([params.page ?? 1, params.perPage ?? DEFAULT_PER_PAGE, params.category ?? "", params.tag ?? ""]);
+}
 
-  listInFlight = (async () => {
+export async function fetchBlogList(params: BlogListParams = {}): Promise<BlogListResult> {
+  const key = cacheKey(params);
+  const now = Date.now();
+  const cached = listCache.get(key);
+  if (cached && cached.expires > now) return cached.data;
+  const inFlight = listInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const page = Math.max(1, params.page ?? 1);
+  const perPage = Math.min(50, Math.max(1, params.perPage ?? DEFAULT_PER_PAGE));
+
+  const task = (async () => {
     try {
-      const raw = await wpFetch("/wp-json/wp/v2/posts?status=publish&per_page=100&_embed=1");
-      const posts = Array.isArray(raw) ? (raw as WpPost[]) : [];
-      const data = posts.map(normalisePost);
-      listCache = { data, expires: Date.now() + CACHE_TTL_MS };
+      const query = new URLSearchParams({
+        status: "publish",
+        page: String(page),
+        per_page: String(perPage),
+        _embed: "1",
+      });
+      if (params.category) {
+        const ids = await categoryIdsFor(params.category);
+        if (ids.length) query.set("categories", ids.join(","));
+      }
+      if (params.tag) {
+        const tagId = (await getTagIndex()).get(params.tag.trim().toLowerCase());
+        if (tagId) query.set("tags", String(tagId));
+      }
+
+      const result = await wpFetch(`/wp-json/wp/v2/posts?${query.toString()}`);
+      const posts = result && Array.isArray(result.data) ? (result.data as WpPost[]) : [];
+      const hierarchy = await getCategoryHierarchy();
+      const items = posts.map((p) => normalisePost(p, hierarchy));
+
+      const totalItems = Number(result?.headers.get("x-wp-total") ?? items.length);
+      const totalPages = Number(result?.headers.get("x-wp-totalpages") ?? 1);
+      const data: BlogListResult = { items, pagination: { page, perPage, totalItems, totalPages: totalPages || 1 } };
+      listCache.set(key, { data, expires: Date.now() + CACHE_TTL_MS });
       return data;
     } catch (error) {
       console.error("[wordpress-blog] list fetch failed:", error);
-      // Serve stale data rather than an empty hub if we have any.
-      return listCache?.data ?? [];
+      return listCache.get(key)?.data ?? { items: [], pagination: { page, perPage, totalItems: 0, totalPages: 1 } };
     } finally {
-      listInFlight = null;
+      listInFlight.delete(key);
     }
   })();
-  return listInFlight;
+  listInFlight.set(key, task);
+  return task;
 }
 
 export async function fetchBlogArticleBySlug(slug: string): Promise<BlogArticle | undefined> {
@@ -335,13 +505,14 @@ export async function fetchBlogArticleBySlug(slug: string): Promise<BlogArticle 
   if (cached && cached.expires > now) return cached.data;
 
   try {
-    const raw = await wpFetch(`/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&status=publish&_embed=1`);
-    const posts = Array.isArray(raw) ? (raw as WpPost[]) : [];
+    const result = await wpFetch(`/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&status=publish&_embed=1`);
+    const posts = result && Array.isArray(result.data) ? (result.data as WpPost[]) : [];
     if (posts.length !== 1) {
       articleCache.set(slug, { data: undefined, expires: now + CACHE_TTL_MS });
       return undefined;
     }
-    const data = normalisePost(posts[0]!);
+    const hierarchy = await getCategoryHierarchy();
+    const data = normalisePost(posts[0]!, hierarchy);
     articleCache.set(slug, { data, expires: now + CACHE_TTL_MS });
     return data;
   } catch (error) {

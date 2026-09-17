@@ -24,7 +24,12 @@ function Inline({ nodes }: { nodes: BlogInline[] }) {
         content
       );
     }
-    return <span key={`${index}-${node.text}`}>{content}</span>;
+    const style = node.color || node.backgroundColor ? { color: node.color, backgroundColor: node.backgroundColor } : undefined;
+    return (
+      <span key={`${index}-${node.text}`} style={style}>
+        {content}
+      </span>
+    );
   });
 }
 
@@ -33,7 +38,7 @@ function BlogBreadcrumbs({ article }: { article: BlogArticleData }) {
     <nav aria-label="Breadcrumb" className="overflow-hidden border-b border-border bg-ivory pt-20 md:pt-24">
       <ol className="container-page flex flex-wrap items-center gap-x-2 gap-y-1 py-4 text-sm text-muted-foreground">
         <li><Link to="/" className="hover:text-accent">Home</Link></li><li aria-hidden>/</li>
-        <li><Link to="/blog" className="hover:text-accent">Blog</Link></li><li aria-hidden>/</li>
+        <li><Link to="/blog" search={{ page: 1 }} className="hover:text-accent">Blog</Link></li><li aria-hidden>/</li>
         <li>{article.category}</li><li aria-hidden>/</li>
         <li className="min-w-0 break-words font-medium text-primary" aria-current="page">{article.title}</li>
       </ol>

@@ -6,5 +6,8 @@ export type {
   BlogDataProvider,
   BlogExam,
   BlogInline,
+  BlogListParams,
+  BlogListResult,
+  BlogPagination,
   BlogSource,
 } from "./types";
